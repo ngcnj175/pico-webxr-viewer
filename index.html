@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
+  <title>WebXR 3D Viewer for PICO4</title>
+  <style>
+    html,body{height:100%;margin:0;background:#0b0d10;color:#e8eef8;font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
+    #ui{position:fixed;left:0;right:0;top:0;display:grid;grid-template-columns:1fr auto auto auto;gap:.5rem;padding:.75rem;background:linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.1));backdrop-filter: blur(6px);align-items:center;z-index:10}
+    #row2{grid-column: 1/-1; display:flex; gap:.5rem; align-items:center}
+    #url,#mtl{flex:1;min-width:10rem;padding:.55rem .7rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#141821;color:#e8eef8}
+    select,button{padding:.55rem .8rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#1b2130;color:#e8eef8;cursor:pointer}
+    button:hover{background:#222a3d}
+    #hint{font-size:.85rem;opacity:.85}
+    #drop{position:fixed;inset:0;border:2px dashed #3b82f6;border-radius:1rem;margin:1rem;display:none;place-content:center;color:#3b82f6;background:rgba(59,130,246,.06);z-index:9}
+    a{color:#9cc1ff}
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <div id="row1" style="display:flex;gap:.5rem;align-items:center;width:100%">
+      <select id="fmt">
+        <option value="glb">GLB/GLTF</option>
+        <option value="obj">OBJ (+MTL任意)</option>
+        <option value="stl">STL</option>
+      </select>
+      <input id="url" placeholder="モデルのURL（Dropbox等）" />
+      <button id="load">読み込む</button>
+      <button id="filebtn">ローカルGLB</button>
+      <button id="reset">リセット</button>
+    </div>
+    <div id="row2">
+      <input id="mtl" placeholder="（任意）OBJのMTL URL" style="display:none" />
+      <span id="hint">VRは右下「Enter VR」。<b>VR中：スティック左右=回転／上下=拡大縮小</b>。Dropboxは共有リンクを <b>dl=1</b> に変更してください。同一ホストに置くとCORS不要です。</span>
+      <input id="file" type="file" accept=".glb,.gltf,model/gltf-binary" hidden />
+      <button id="rotL">⟲ 回転</button>
+      <button id="rotR">⟳ 回転</button>
+      <button id="scaleP">拡大 +</button>
+      <button id="scaleM">縮小 −</button>
+    </div>
+  </div>
+  <div id="drop">ここに .glb をドロップ</div>
+ 
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+    import { OBJLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/OBJLoader.js';
+    import { MTLLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/MTLLoader.js';
+    import { STLLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/STLLoader.js';
+    import { VRButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/VRButton.js';
+    import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    let scene, camera, renderer, controls;
+    const container = document.body;
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b0d10);
+
+    camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+    camera.position.set(0, 1.6, 2.5);
+
+    renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.xr.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    container.appendChild(renderer.domElement);
+    container.appendChild(VRButton.createButton(renderer));
+    // AR(パススルー)が使える環境ではARボタンも表示
+    if (navigator.xr && navigator.xr.isSessionSupported) {
+      try { if (await navigator.xr.isSessionSupported('immersive-ar')) {
+        container.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['local-floor'] }));
+      }} catch(e) { console.warn('AR support check error', e); }
+    }
+
+    // Lights
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a1a, 1.0));
+    const d = new THREE.DirectionalLight(0xffffff, 1.2); d.position.set(3,5,2); scene.add(d);
+
+    // Ground grid (for scale)
+    const grid = new THREE.GridHelper(20, 20, 0x334155, 0x1f2937);
+    grid.position.y = 0; scene.add(grid);
+
+    controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    const gltfLoader = new GLTFLoader();
+    const objLoader = new OBJLoader();
+    const mtlLoader = new MTLLoader();
+    const stlLoader = new STLLoader();
+
+    function clearModel(){
+      const keep = new Set([grid, camera, ...scene.children.filter(o=>o.isLight)]);
+      scene.children.slice().forEach(obj=>{ if (!keep.has(obj)) scene.remove(obj); });
+    }
+
+    function frameObject(obj){
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const center = new THREE.Vector3(); box.getCenter(center);
+      obj.position.sub(center);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const dist = maxDim * 1.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      camera.position.set(0, Math.min(1.6, maxDim*0.6), dist);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    async function loadFromURL(url, fmt, mtlUrl){
+      try {
+        if (!/^https?:\/\//i.test(url)) throw new Error('URLが不正です');
+        clearModel();
+        if(fmt==='glb'){
+          const { scene: glb } = await gltfLoader.loadAsync(url);
+          scene.add(glb); frameObject(glb);
+        } else if(fmt==='obj'){
+          if (mtlUrl){
+            const mtl = await mtlLoader.loadAsync(mtlUrl);
+            mtl.preload();
+            objLoader.setMaterials(mtl);
+          }
+          const obj = await objLoader.loadAsync(url);
+          scene.add(obj); frameObject(obj);
+        } else if(fmt==='stl'){
+          const geo = await stlLoader.loadAsync(url);
+          const mat = new THREE.MeshStandardMaterial({color:0x9aa7b1, metalness:0.1, roughness:0.8});
+          const mesh = new THREE.Mesh(geo, mat);
+          mesh.castShadow = mesh.receiveShadow = true;
+          scene.add(mesh); frameObject(mesh);
+        }
+      } catch (e) { alert('読み込みエラー: ' + (e?.message || e)); console.error(e); }
+    }
+
+    async function loadFromFile(file){
+      try{
+        clearModel();
+        const url = URL.createObjectURL(file);
+        const { scene: glb } = await gltfLoader.loadAsync(url);
+        scene.add(glb); frameObject(glb);
+        setTimeout(()=>URL.revokeObjectURL(url), 10000);
+      }catch(e){ alert('ファイル読み込みエラー: ' + (e?.message || e)); }
+    }
+
+    const fmtSel = document.getElementById('fmt');
+    const urlInput = document.getElementById('url');
+    const mtlInput = document.getElementById('mtl');
+    const loadBtn = document.getElementById('load');
+    const fileBtn = document.getElementById('filebtn');
+    const fileInput = document.getElementById('file');
+    const drop = document.getElementById('drop');
+    const resetBtn = document.getElementById('reset');
+    const rotL = document.getElementById('rotL');
+    const rotR = document.getElementById('rotR');
+    const scaleP = document.getElementById('scaleP');
+    const scaleM = document.getElementById('scaleM');
+
+    // persist last URL
+    urlInput.value = localStorage.getItem('model_url') || '';
+    mtlInput.value = localStorage.getItem('mtl_url') || '';
+    fmtSel.value = localStorage.getItem('model_fmt') || 'glb';
+
+    fmtSel.onchange = () => { mtlInput.style.display = fmtSel.value==='obj' ? '' : 'none'; };
+    fmtSel.onchange();
+
+    loadBtn.onclick = ()=>{
+      let u = urlInput.value.trim();
+      let m = mtlInput.value.trim();
+      // Dropbox共有リンクを自動で "dl=1" に寄せる
+      const fix = (s)=> s.replace('www.dropbox.com','dl.dropboxusercontent.com').replace(/\?dl=0$/, '?dl=1');
+      if (/dropbox\.com/i.test(u)) u = fix(u);
+      if (/dropbox\.com/i.test(m)) m = fix(m);
+      localStorage.setItem('model_url', u);
+      localStorage.setItem('mtl_url', m);
+      localStorage.setItem('model_fmt', fmtSel.value);
+      loadFromURL(u, fmtSel.value, m || undefined);
+    };
+    fileBtn.onclick = ()=> fileInput.click();
+    fileInput.onchange = (e)=>{ const f=e.target.files?.[0]; if(f) loadFromFile(f); };
+    resetBtn.onclick = ()=>{ controls.reset(); camera.position.set(0,1.6,2.5); };
+
+    const currentObject = ()=> scene.children.find(o=>o.type!=='GridHelper' && !o.isLight && o!==camera);
+    rotL.onclick = ()=>{ const obj = currentObject(); if(obj) obj.rotation.y -= Math.PI/12; };
+    rotR.onclick = ()=>{ const obj = currentObject(); if(obj) obj.rotation.y += Math.PI/12; };
+    scaleP.onclick = ()=>{ const obj = currentObject(); if(obj) obj.scale.multiplyScalar(1.1); };
+    scaleM.onclick = ()=>{ const obj = currentObject(); if(obj) obj.scale.multiplyScalar(0.9); };
+
+    // drag & drop (GLBのみ)
+    window.addEventListener('dragover', (e)=>{ e.preventDefault(); drop.style.display='grid'; });
+    window.addEventListener('dragleave', ()=>{ drop.style.display='none'; });
+    window.addEventListener('drop', (e)=>{ e.preventDefault(); drop.style.display='none'; const f=e.dataTransfer.files?.[0]; if(f) loadFromFile(f); });
+
+    // XRコントローラ（スティック）で回転＆拡大縮小
+    function applyXRGamepadControls(){
+      if (!renderer.xr.isPresenting) return;
+      const session = renderer.xr.getSession();
+      if (!session) return;
+      const obj = currentObject(); if (!obj) return;
+      const DEAD=0.2, ROT_SPEED=0.06, SCALE_SPEED=0.02;
+      for (const src of session.inputSources){
+        const gp = src.gamepad; if (!gp) continue;
+        const axH = (gp.axes?.[2] ?? gp.axes?.[0] ?? 0);
+        const axV = (gp.axes?.[3] ?? gp.axes?.[1] ?? 0);
+        if (Math.abs(axH) > DEAD) obj.rotation.y += axH * ROT_SPEED;
+        if (Math.abs(axV) > DEAD) { const s = 1 + (-axV) * SCALE_SPEED; obj.scale.multiplyScalar(s); obj.scale.clampScalar(0.05, 50); }
+      }
+    }
+
+    // animate
+    renderer.setAnimationLoop(()=>{
+      controls.update();
+      applyXRGamepadControls();
+      renderer.render(scene, camera);
+    });
+
+    // resize
+    addEventListener('resize', ()=>{ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); });
+
+    // Console tips
+    console.log('%cNOTE','background:#3b82f6;color:white;padding:2px 6px;border-radius:4px','OBJ+MTLはURL読み込みに対応（ローカルはGLBのみ）。MTLは省略可（無色）。Dropboxリンクは dl.dropboxusercontent.com + dl=1 推奨。');
+  </script>
+</body>
+</html>
