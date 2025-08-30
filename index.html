@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
   <title>WebXR 3D Viewer for PICO4</title>
   <style>
+    #log{position:fixed;left:1rem;bottom:1rem;max-width:80vw;background:#111827cc;color:#f3f4f6;padding:.6rem .8rem;border-radius:.6rem;font-size:.85rem;z-index:20;white-space:pre-wrap}
+
     html,body{height:100%;margin:0;background:#0b0d10;color:#e8eef8;font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
     #ui{position:fixed;left:0;right:0;top:0;display:grid;grid-template-columns:1fr auto auto auto;gap:.5rem;padding:.75rem;background:linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.1));backdrop-filter: blur(6px);align-items:center;z-index:10}
     #row2{grid-column: 1/-1; display:flex; gap:.5rem; align-items:center}
@@ -40,6 +42,7 @@
     </div>
   </div>
   <div id="drop">ここに .glb をドロップ</div>
+  <div id="log" hidden></div>
  
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
@@ -86,6 +89,12 @@
     controls.enableDamping = true;
 
     const gltfLoader = new GLTFLoader();
+    const logEl = document.getElementById('log');
+    function log(msg, isError=false){
+      logEl.hidden = false;
+      logEl.textContent = (isError?'⚠️ ':'') + msg;
+      if(!isError) setTimeout(()=>{ logEl.hidden=true; }, 3000);
+    }
     const objLoader = new OBJLoader();
     const mtlLoader = new MTLLoader();
     const stlLoader = new STLLoader();
@@ -177,10 +186,23 @@
     loadBtn.onclick = ()=>{
       let u = urlInput.value.trim();
       let m = mtlInput.value.trim();
+      const fix = (s)=>{
+        if(!s) return s;
+        let u = s.trim();
+        if (/dropbox\.com/i.test(u)){
+          u = u.replace('www.dropbox.com','dl.dropboxusercontent.com');
+          if(!/raw=1/.test(u)){
+            u += (u.includes('?') ? '&' : '?') + 'raw=1';
+          }
+        }
+        return u;
+      };
+      u = fix(u); m = fix(m);
       localStorage.setItem('model_url', u);
       localStorage.setItem('mtl_url', m);
       localStorage.setItem('model_fmt', fmtSel.value);
-      loadFromURL(u, fmtSel.value, m || undefined);
+      log('読み込み開始…');
+      loadFromURL(u, fmtSel.value, m || undefined).catch(e=>log('読み込み失敗: '+ (e?.message||e), true));
     };
 
     fileBtn.onclick = ()=> fileInput.click();
