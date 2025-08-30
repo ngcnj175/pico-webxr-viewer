@@ -67,11 +67,14 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     container.appendChild(renderer.domElement);
     container.appendChild(VRButton.createButton(renderer));
+
     // AR(パススルー)が使える環境ではARボタンも表示
     if (navigator.xr && navigator.xr.isSessionSupported) {
-      try { if (await navigator.xr.isSessionSupported('immersive-ar')) {
-        container.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['local-floor'] }));
-      }} catch(e) { console.warn('AR support check error', e); }
+      navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+        if (supported) {
+          container.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['local-floor'] }));
+        }
+      }).catch(e => console.warn('AR support check error', e));
     }
 
     // Lights
