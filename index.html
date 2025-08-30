@@ -31,7 +31,7 @@
     </div>
     <div id="row2">
       <input id="mtl" placeholder="（任意）OBJのMTL URL" style="display:none" />
-      <span id="hint">VRは右下「Enter VR」。<b>VR中：スティック左右=回転／上下=拡大縮小</b>。Dropboxは共有リンクを <b>dl=1</b> に変更してください。同一ホストに置くとCORS不要です。</span>
+      <span id="hint">VRは右下「Enter VR」。<b>VR中：スティック左右=回転／上下=拡大縮小</b>。Dropboxは共有リンクを <b>dl=1 または raw=1</b> に変更してください。同一ホストに置くとCORS不要です。</span>
       <input id="file" type="file" accept=".glb,.gltf,model/gltf-binary" hidden />
       <button id="rotL">⟲ 回転</button>
       <button id="rotR">⟳ 回転</button>
@@ -123,6 +123,11 @@
             mtl.preload();
             objLoader.setMaterials(mtl);
           }
+          // Dropboxリンクの自動変換（?dl=0 → ?raw=1 にも対応）
+          if (/dropbox\.com/i.test(url)){
+            url = url.replace('www.dropbox.com','dl.dropboxusercontent.com');
+            url = url.replace(/\?dl=0$/, '?raw=1').replace(/\?dl=1$/, '?raw=1');
+          }
           const obj = await objLoader.loadAsync(url);
           scene.add(obj); frameObject(obj);
         } else if(fmt==='stl'){
@@ -169,8 +174,10 @@
     loadBtn.onclick = ()=>{
       let u = urlInput.value.trim();
       let m = mtlInput.value.trim();
-      // Dropbox共有リンクを自動で "dl=1" に寄せる
-      const fix = (s)=> s.replace('www.dropbox.com','dl.dropboxusercontent.com').replace(/\?dl=0$/, '?dl=1');
+      const fix = (s)=> s
+        .replace('www.dropbox.com','dl.dropboxusercontent.com')
+        .replace(/\?dl=0$/, '?raw=1')
+        .replace(/\?dl=1$/, '?raw=1');
       if (/dropbox\.com/i.test(u)) u = fix(u);
       if (/dropbox\.com/i.test(m)) m = fix(m);
       localStorage.setItem('model_url', u);
@@ -220,7 +227,7 @@
     addEventListener('resize', ()=>{ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); });
 
     // Console tips
-    console.log('%cNOTE','background:#3b82f6;color:white;padding:2px 6px;border-radius:4px','OBJ+MTLはURL読み込みに対応（ローカルはGLBのみ）。MTLは省略可（無色）。Dropboxリンクは dl.dropboxusercontent.com + dl=1 推奨。');
+    console.log('%cNOTE','background:#3b82f6;color:white;padding:2px 6px;border-radius:4px','OBJ+MTLはURL読み込みに対応（ローカルはGLBのみ）。MTLは省略可（無色）。Dropboxリンクは dl.dropboxusercontent.com + ?raw=1 推奨。');
   </script>
 </body>
 </html>
