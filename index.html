@@ -3,46 +3,62 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1" />
-  <title>WebXR 3D Viewer for PICO4</title>
+  <title>WebXR 3D Viewer for PICO4 (Fixed)</title>
   <style>
-    #log{position:fixed;left:1rem;bottom:1rem;max-width:80vw;background:#111827cc;color:#f3f4f6;padding:.6rem .8rem;border-radius:.6rem;font-size:.85rem;z-index:20;white-space:pre-wrap}
-
     html,body{height:100%;margin:0;background:#0b0d10;color:#e8eef8;font-family:system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
-    #ui{position:fixed;left:0;right:0;top:0;display:grid;grid-template-columns:1fr auto auto auto;gap:.5rem;padding:.75rem;background:linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.1));backdrop-filter: blur(6px);align-items:center;z-index:10}
-    #row2{grid-column: 1/-1; display:flex; gap:.5rem; align-items:center}
-    #url,#mtl{flex:1;min-width:10rem;padding:.55rem .7rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#141821;color:#e8eef8}
-    select,button{padding:.55rem .8rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#1b2130;color:#e8eef8;cursor:pointer}
+    #ui{position:fixed;left:0;right:0;top:0;display:grid;grid-template-columns:1fr;gap:.5rem;padding:.75rem;background:linear-gradient(180deg, rgba(0,0,0,.75), rgba(0,0,0,.3));backdrop-filter: blur(6px);z-index:10}
+    #row1,#row2{display:flex; gap:.5rem; align-items:center; flex-wrap:wrap}
+    #url,#mtl{flex:1;min-width:200px;padding:.6rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#141821;color:#e8eef8;font-size:14px}
+    select,button{padding:.6rem .8rem;border-radius:.6rem;border:1px solid #2a2f3a;background:#1b2130;color:#e8eef8;cursor:pointer;font-size:14px;white-space:nowrap}
     button:hover{background:#222a3d}
-    #hint{font-size:.85rem;opacity:.85}
-    #drop{position:fixed;inset:0;border:2px dashed #3b82f6;border-radius:1rem;margin:1rem;display:none;place-content:center;color:#3b82f6;background:rgba(59,130,246,.06);z-index:9}
-    a{color:#9cc1ff}
+    button:active{background:#2a3441}
+    button:disabled{opacity:0.5;cursor:not-allowed}
+    #status{font-size:.85rem;opacity:.85;padding:.5rem;background:rgba(0,0,0,.3);border-radius:.4rem;margin:.5rem 0}
+    .error{color:#ff6b6b;background:rgba(255,107,107,.1)}
+    .success{color:#51cf66;background:rgba(81,207,102,.1)}
+    .warning{color:#ffd43b;background:rgba(255,212,59,.1)}
+    #drop{position:fixed;inset:0;border:3px dashed #3b82f6;border-radius:1rem;margin:1rem;display:none;place-content:center;color:#3b82f6;background:rgba(59,130,246,.08);z-index:20;font-size:1.2rem;font-weight:bold}
+    #corsInfo{background:rgba(59,130,246,.1);border:1px solid #3b82f6;border-radius:.6rem;padding:1rem;margin:.5rem 0;font-size:.85rem}
+    .hidden{display:none!important}
+    @media (max-width: 768px) {
+      #ui{font-size:14px}
+      #row1,#row2{flex-direction:column;align-items:stretch}
+      #url,#mtl,select,button{min-width:unset;width:100%}
+    }
   </style>
 </head>
 <body>
   <div id="ui">
-    <div id="row1" style="display:flex;gap:.5rem;align-items:center;width:100%">
+    <div id="row1">
       <select id="fmt">
         <option value="glb">GLB/GLTF</option>
         <option value="obj">OBJ (+MTL任意)</option>
         <option value="stl">STL</option>
       </select>
-      <input id="url" placeholder="OBJ/GLB/STL のURL（Dropboxなど）" />
-      <input id="mtl" placeholder="（任意）OBJ用MTLのURL" style="display:none" />
+      <input id="url" placeholder="3DモデルのURL（直リンク必須）" />
+      <input id="mtl" placeholder="（任意）OBJ用MTLのURL" class="hidden" />
       <button id="load">読み込む</button>
-      <button id="filebtn">ローカルGLB</button>
-      <button id="reset">リセット</button>
+      <button id="proxy" title="CORS回避用プロキシ経由で読み込み">プロキシ経由</button>
     </div>
     <div id="row2">
-      <span id="hint">VRは右下「Enter VR」。<b>VR中：スティック左右=回転／上下=拡大縮小</b>。Dropboxリンクは <b>dl=1 または raw=1</b> に変更してください。同じリポジトリに置くとCORS不要です。</span>
-      <input id="file" type="file" accept=".glb,.gltf,model/gltf-binary" hidden />
-      <button id="rotL">⟲ 回転</button>
-      <button id="rotR">⟳ 回転</button>
+      <button id="filebtn">ローカルファイル</button>
+      <button id="reset">リセット</button>
+      <button id="rotL">⟲</button>
+      <button id="rotR">⟳</button>
       <button id="scaleP">拡大 +</button>
       <button id="scaleM">縮小 −</button>
     </div>
+    <div id="status">準備完了。3DモデルのURLを入力して読み込んでください。</div>
+    <div id="corsInfo">
+      <strong>🔧 Dropbox使用時の注意:</strong><br>
+      • URLの末尾を <code>?raw=1</code> または <code>?dl=1</code> に変更<br>
+      • それでも読み込めない場合は「プロキシ経由」ボタンを使用<br>
+      • 確実な方法: ローカルファイルまたは自前サーバーを使用<br>
+      <strong>VR操作:</strong> スティック左右=回転、上下=拡大縮小
+    </div>
+    <input id="file" type="file" accept=".glb,.gltf,.obj,.stl,model/gltf-binary" hidden />
   </div>
-  <div id="drop">ここに .glb をドロップ</div>
-  <div id="log" hidden></div>
+  <div id="drop">ここに 3D ファイルをドロップ</div>
  
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
@@ -51,205 +67,485 @@
     import { MTLLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/MTLLoader.js';
     import { STLLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/STLLoader.js';
     import { VRButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/VRButton.js';
-    import { ARButton } from 'https://unpkg.com/three@0.160.0/examples/jsm/webxr/ARButton.js';
     import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
 
     let scene, camera, renderer, controls, currentObj;
     const container = document.body;
 
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b0d10);
+    // UI要素
+    const statusDiv = document.getElementById('status');
+    const loadBtn = document.getElementById('load');
+    const proxyBtn = document.getElementById('proxy');
+    const resetBtn = document.getElementById('reset');
 
-    camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
-    camera.position.set(0, 1.6, 2.5);
-
-    renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.xr.enabled = true;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    container.appendChild(renderer.domElement);
-    container.appendChild(VRButton.createButton(renderer));
-
-    if (navigator.xr && navigator.xr.isSessionSupported) {
-      navigator.xr.isSessionSupported('immersive-ar').then(supported => {
-        if (supported) {
-          container.appendChild(ARButton.createButton(renderer, { optionalFeatures: ['local-floor'] }));
-        }
-      });
+    function updateStatus(message, type = 'info') {
+      statusDiv.textContent = message;
+      statusDiv.className = type === 'error' ? 'error' : type === 'success' ? 'success' : type === 'warning' ? 'warning' : '';
+      console.log(`[${type.toUpperCase()}]`, message);
     }
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x1a1a1a, 1.0));
-    const d = new THREE.DirectionalLight(0xffffff, 1.2); d.position.set(3,5,2); scene.add(d);
+    function setLoading(isLoading) {
+      [loadBtn, proxyBtn].forEach(btn => btn.disabled = isLoading);
+      if (isLoading) updateStatus('読み込み中...', 'warning');
+    }
 
-    const grid = new THREE.GridHelper(20, 20, 0x334155, 0x1f2937);
-    grid.position.y = 0; scene.add(grid);
+    // Three.js初期化
+    try {
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x0b0d10);
 
-    controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
+      camera = new THREE.PerspectiveCamera(70, innerWidth/innerHeight, 0.1, 1000);
+      camera.position.set(0, 1.6, 3);
 
+      renderer = new THREE.WebGLRenderer({ antialias:true, alpha:false });
+      renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); // PICO4での性能考慮
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.xr.enabled = true;
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      
+      container.appendChild(renderer.domElement);
+
+      // WebXRボタン追加（エラーハンドリング付き）
+      try {
+        const vrButton = VRButton.createButton(renderer);
+        vrButton.style.bottom = '20px';
+        vrButton.style.right = '20px';
+        container.appendChild(vrButton);
+        updateStatus('WebXR対応ブラウザです。VRボタンが追加されました。', 'success');
+      } catch(e) {
+        updateStatus('WebXR非対応またはVRボタン追加エラー: ' + e.message, 'warning');
+      }
+
+      // ライティング
+      const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+      scene.add(ambientLight);
+      
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+      directionalLight.position.set(5, 10, 5);
+      directionalLight.castShadow = true;
+      directionalLight.shadow.mapSize.width = 1024;
+      directionalLight.shadow.mapSize.height = 1024;
+      scene.add(directionalLight);
+
+      // グリッド
+      const gridHelper = new THREE.GridHelper(20, 20, 0x334155, 0x1f2937);
+      scene.add(gridHelper);
+
+      // コントロール
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.maxDistance = 50;
+      controls.minDistance = 0.5;
+
+      updateStatus('3Dエンジン初期化完了', 'success');
+    } catch(e) {
+      updateStatus('3Dエンジン初期化エラー: ' + e.message, 'error');
+    }
+
+    // ローダー初期化
     const gltfLoader = new GLTFLoader();
-    const logEl = document.getElementById('log');
-    function log(msg, isError=false){
-      logEl.hidden = false;
-      logEl.textContent = (isError?'⚠️ ':'') + msg;
-      if(!isError) setTimeout(()=>{ logEl.hidden=true; }, 3000);
-    }
     const objLoader = new OBJLoader();
     const mtlLoader = new MTLLoader();
     const stlLoader = new STLLoader();
 
     function clearModel(){
-      if(currentObj){ scene.remove(currentObj); currentObj=null; }
+      if(currentObj){ 
+        scene.remove(currentObj); 
+        currentObj = null;
+        updateStatus('モデルをクリアしました');
+      }
     }
 
     function frameObject(obj){
       const box = new THREE.Box3().setFromObject(obj);
-      const size = new THREE.Vector3(); box.getSize(size);
-      const center = new THREE.Vector3(); box.getCenter(center);
+      const size = new THREE.Vector3(); 
+      box.getSize(size);
+      const center = new THREE.Vector3(); 
+      box.getCenter(center);
+      
+      // オブジェクトを中心に移動
       obj.position.sub(center);
+      
+      // カメラ位置を調整
       const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const dist = maxDim * 1.6 / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-      camera.position.set(0, Math.min(1.6, maxDim*0.6), dist);
+      const distance = maxDim * 2;
+      camera.position.set(distance * 0.7, distance * 0.5, distance);
       controls.target.set(0, 0, 0);
       controls.update();
+      
+      updateStatus(`モデル読み込み完了 (サイズ: ${maxDim.toFixed(2)})`, 'success');
     }
 
-    async function loadFromURL(url, fmt, mtlUrl){
+    // URL正規化関数（改良版）
+    function normalizeURL(url) {
+      if (!url) return url;
+      
+      // Dropbox対応
+      if (url.includes('dropbox.com')) {
+        // 既存のクエリパラメータを削除して raw=1 を追加
+        let cleanUrl = url.split('?')[0];
+        return cleanUrl + '?raw=1';
+      }
+      
+      // Google Drive対応
+      if (url.includes('drive.google.com')) {
+        const match = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+        if (match) {
+          return `https://drive.google.com/uc?export=download&id=${match[1]}`;
+        }
+      }
+      
+      return url;
+    }
+
+    // CORS回避プロキシURL
+    const CORS_PROXIES = [
+      'https://cors-anywhere.herokuapp.com/',
+      'https://api.allorigins.win/raw?url=',
+      'https://corsproxy.io/?'
+    ];
+
+    async function loadFromURL(url, format, mtlUrl, useProxy = false) {
+      if (!url?.trim()) {
+        updateStatus('URLが入力されていません', 'error');
+        return;
+      }
+
+      setLoading(true);
+      
       try {
-        if (!/^https?:\/\//i.test(url)) throw new Error('URLが不正です');
         clearModel();
-
-        const fix = (s)=> s
-          .replace('www.dropbox.com','dl.dropboxusercontent.com')
-          .replace(/\?dl=0(&.*)?$/, '?raw=1')
-          .replace(/\?dl=1(&.*)?$/, '?raw=1');
-
-        if (/dropbox\.com/i.test(url)) url = fix(url);
-        if (mtlUrl && /dropbox\.com/i.test(mtlUrl)) mtlUrl = fix(mtlUrl);
-
-        if(fmt==='glb'){
-          const { scene: glb } = await gltfLoader.loadAsync(url);
-          currentObj = glb;
-          scene.add(glb); frameObject(glb);
-        } else if(fmt==='obj'){
-          if (mtlUrl){
-            const mtl = await mtlLoader.loadAsync(mtlUrl);
-            mtl.preload();
-            objLoader.setMaterials(mtl);
+        
+        // URL正規化
+        let normalizedUrl = normalizeURL(url.trim());
+        let normalizedMtlUrl = mtlUrl ? normalizeURL(mtlUrl.trim()) : null;
+        
+        // プロキシ使用
+        if (useProxy) {
+          const proxy = CORS_PROXIES[0]; // 最初のプロキシを使用
+          normalizedUrl = proxy + encodeURIComponent(normalizedUrl);
+          if (normalizedMtlUrl) {
+            normalizedMtlUrl = proxy + encodeURIComponent(normalizedMtlUrl);
           }
-          const obj = await objLoader.loadAsync(url);
-          currentObj = obj;
-          scene.add(obj); frameObject(obj);
-        } else if(fmt==='stl'){
-          const geo = await stlLoader.loadAsync(url);
-          const mat = new THREE.MeshStandardMaterial({color:0x9aa7b1, metalness:0.1, roughness:0.8});
-          const mesh = new THREE.Mesh(geo, mat);
-          mesh.castShadow = mesh.receiveShadow = true;
-          currentObj = mesh;
-          scene.add(mesh); frameObject(mesh);
+          updateStatus('プロキシ経由で読み込み中...', 'warning');
+        } else {
+          updateStatus(`${format.toUpperCase()}ファイルを読み込み中...`, 'warning');
         }
-      } catch (e) { alert('読み込みエラー: ' + (e?.message || e)); console.error(e); }
-    }
 
-    async function loadFromFile(file){
-      try{
-        clearModel();
-        const url = URL.createObjectURL(file);
-        const { scene: glb } = await gltfLoader.loadAsync(url);
-        currentObj = glb;
-        scene.add(glb); frameObject(glb);
-        setTimeout(()=>URL.revokeObjectURL(url), 10000);
-      }catch(e){ alert('ファイル読み込みエラー: ' + (e?.message || e)); }
-    }
+        let loadedObject = null;
 
-    const fmtSel = document.getElementById('fmt');
-    const urlInput = document.getElementById('url');
-    const mtlInput = document.getElementById('mtl');
-    const loadBtn = document.getElementById('load');
-    const fileBtn = document.getElementById('filebtn');
-    const fileInput = document.getElementById('file');
-    const drop = document.getElementById('drop');
-    const resetBtn = document.getElementById('reset');
-    const rotL = document.getElementById('rotL');
-    const rotR = document.getElementById('rotR');
-    const scaleP = document.getElementById('scaleP');
-    const scaleM = document.getElementById('scaleM');
-
-    urlInput.value = localStorage.getItem('model_url') || '';
-    mtlInput.value = localStorage.getItem('mtl_url') || '';
-    fmtSel.value = localStorage.getItem('model_fmt') || 'glb';
-
-    fmtSel.onchange = () => { mtlInput.style.display = fmtSel.value==='obj' ? '' : 'none'; };
-    fmtSel.onchange();
-
-    loadBtn.onclick = ()=>{
-      let u = urlInput.value.trim();
-      let m = mtlInput.value.trim();
-      const fix = (s)=>{
-        if(!s) return s;
-        let u = s.trim();
-        if (/dropbox\.com/i.test(u)){
-          u = u.replace('www.dropbox.com','dl.dropboxusercontent.com');
-          if(!/raw=1/.test(u)){
-            u += (u.includes('?') ? '&' : '?') + 'raw=1';
+        if (format === 'glb') {
+          const gltf = await gltfLoader.loadAsync(normalizedUrl);
+          loadedObject = gltf.scene;
+          
+          // アニメーションがある場合の処理
+          if (gltf.animations?.length > 0) {
+            updateStatus(`アニメーション付きモデル読み込み完了 (${gltf.animations.length}個)`, 'success');
           }
+          
+        } else if (format === 'obj') {
+          // MTLファイルがある場合は先に読み込み
+          if (normalizedMtlUrl) {
+            try {
+              const materials = await mtlLoader.loadAsync(normalizedMtlUrl);
+              materials.preload();
+              objLoader.setMaterials(materials);
+              updateStatus('マテリアルファイル読み込み完了、OBJファイルを読み込み中...', 'warning');
+            } catch(mtlError) {
+              updateStatus('MTLファイル読み込み失敗、デフォルトマテリアルで続行', 'warning');
+            }
+          }
+          
+          loadedObject = await objLoader.loadAsync(normalizedUrl);
+          
+        } else if (format === 'stl') {
+          const geometry = await stlLoader.loadAsync(normalizedUrl);
+          geometry.computeVertexNormals();
+          
+          const material = new THREE.MeshStandardMaterial({
+            color: 0x9aa7b1,
+            metalness: 0.1,
+            roughness: 0.8
+          });
+          
+          loadedObject = new THREE.Mesh(geometry, material);
+          loadedObject.castShadow = true;
+          loadedObject.receiveShadow = true;
         }
-        return u;
-      };
-      u = fix(u); m = fix(m);
-      localStorage.setItem('model_url', u);
-      localStorage.setItem('mtl_url', m);
-      localStorage.setItem('model_fmt', fmtSel.value);
-      log('読み込み開始…');
-      loadFromURL(u, fmtSel.value, m || undefined).catch(e=>log('読み込み失敗: '+ (e?.message||e), true));
-    };
 
-    fileBtn.onclick = ()=> fileInput.click();
-    fileInput.onchange = (e)=>{ const f=e.target.files?.[0]; if(f) loadFromFile(f); };
-
-    resetBtn.onclick = ()=>{
-      clearModel();
-      urlInput.value=''; mtlInput.value='';
-      localStorage.removeItem('model_url');
-      localStorage.removeItem('mtl_url');
-      localStorage.removeItem('model_fmt');
-      camera.position.set(0,1.6,2.5);
-      controls.reset();
-    };
-
-    const currentObjectFn = ()=> currentObj;
-    rotL.onclick = ()=>{ const obj = currentObjectFn(); if(obj) obj.rotation.y -= Math.PI/12; };
-    rotR.onclick = ()=>{ const obj = currentObjectFn(); if(obj) obj.rotation.y += Math.PI/12; };
-    scaleP.onclick = ()=>{ const obj = currentObjectFn(); if(obj) obj.scale.multiplyScalar(1.1); };
-    scaleM.onclick = ()=>{ const obj = currentObjectFn(); if(obj) obj.scale.multiplyScalar(0.9); };
-
-    window.addEventListener('dragover', (e)=>{ e.preventDefault(); drop.style.display='grid'; });
-    window.addEventListener('dragleave', ()=>{ drop.style.display='none'; });
-    window.addEventListener('drop', (e)=>{ e.preventDefault(); drop.style.display='none'; const f=e.dataTransfer.files?.[0]; if(f) loadFromFile(f); });
-
-    function applyXRGamepadControls(){
-      if (!renderer.xr.isPresenting) return;
-      const session = renderer.xr.getSession();
-      if (!session) return;
-      const obj = currentObjectFn(); if (!obj) return;
-      const DEAD=0.2, ROT_SPEED=0.06, SCALE_SPEED=0.02;
-      for (const src of session.inputSources){
-        const gp = src.gamepad; if (!gp) continue;
-        const axH = (gp.axes?.[2] ?? gp.axes?.[0] ?? 0);
-        const axV = (gp.axes?.[3] ?? gp.axes?.[1] ?? 0);
-        if (Math.abs(axH) > DEAD) obj.rotation.y += axH * ROT_SPEED;
-        if (Math.abs(axV) > DEAD) { const s = 1 + (-axV) * SCALE_SPEED; obj.scale.multiplyScalar(s); obj.scale.clampScalar(0.05, 50); }
+        if (loadedObject) {
+          // シャドウ設定
+          loadedObject.traverse((child) => {
+            if (child.isMesh) {
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          
+          currentObj = loadedObject;
+          scene.add(loadedObject);
+          frameObject(loadedObject);
+          
+          // 成功時のローカルストレージ保存
+          localStorage.setItem('last_model_url', url);
+          localStorage.setItem('last_model_format', format);
+          if (mtlUrl) localStorage.setItem('last_mtl_url', mtlUrl);
+          
+        } else {
+          throw new Error('オブジェクトの作成に失敗しました');
+        }
+        
+      } catch (error) {
+        console.error('Load error:', error);
+        let errorMessage = 'モデル読み込みエラー: ';
+        
+        if (error.message.includes('CORS')) {
+          errorMessage += 'CORS制限によりアクセスできません。「プロキシ経由」ボタンを試してください。';
+        } else if (error.message.includes('404')) {
+          errorMessage += 'ファイルが見つかりません。URLを確認してください。';
+        } else if (error.message.includes('NetworkError')) {
+          errorMessage += 'ネットワークエラーです。接続を確認してください。';
+        } else {
+          errorMessage += error.message || '不明なエラー';
+        }
+        
+        updateStatus(errorMessage, 'error');
+        
+        // 失敗時はプロキシ使用を提案
+        if (!useProxy && error.message.includes('CORS')) {
+          updateStatus('CORS制限エラー - プロキシ経由での読み込みを試してください', 'warning');
+        }
+      } finally {
+        setLoading(false);
       }
     }
 
-    renderer.setAnimationLoop(()=>{
+    async function loadFromFile(file) {
+      if (!file) return;
+      
+      setLoading(true);
+      updateStatus('ローカルファイルを読み込み中...', 'warning');
+      
+      try {
+        clearModel();
+        const url = URL.createObjectURL(file);
+        const fileExt = file.name.toLowerCase().split('.').pop();
+        
+        let loadedObject = null;
+        
+        if (['glb', 'gltf'].includes(fileExt)) {
+          const gltf = await gltfLoader.loadAsync(url);
+          loadedObject = gltf.scene;
+        } else if (fileExt === 'obj') {
+          loadedObject = await objLoader.loadAsync(url);
+        } else if (fileExt === 'stl') {
+          const geometry = await stlLoader.loadAsync(url);
+          geometry.computeVertexNormals();
+          const material = new THREE.MeshStandardMaterial({
+            color: 0x9aa7b1,
+            metalness: 0.1,
+            roughness: 0.8
+          });
+          loadedObject = new THREE.Mesh(geometry, material);
+        } else {
+          throw new Error('サポートされていないファイル形式です');
+        }
+        
+        if (loadedObject) {
+          currentObj = loadedObject;
+          scene.add(loadedObject);
+          frameObject(loadedObject);
+        }
+        
+        // URLを解放
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        
+      } catch (error) {
+        console.error('File load error:', error);
+        updateStatus('ファイル読み込みエラー: ' + (error?.message || '不明なエラー'), 'error');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // UI要素の取得
+    const fmtSelect = document.getElementById('fmt');
+    const urlInput = document.getElementById('url');
+    const mtlInput = document.getElementById('mtl');
+    const fileBtnEl = document.getElementById('filebtn');
+    const fileInput = document.getElementById('file');
+    const dropZone = document.getElementById('drop');
+    const rotLBtn = document.getElementById('rotL');
+    const rotRBtn = document.getElementById('rotR');
+    const scalePBtn = document.getElementById('scaleP');
+    const scaleMBtn = document.getElementById('scaleM');
+
+    // 初期値の復元
+    urlInput.value = localStorage.getItem('last_model_url') || '';
+    mtlInput.value = localStorage.getItem('last_mtl_url') || '';
+    fmtSelect.value = localStorage.getItem('last_model_format') || 'glb';
+
+    // フォーマット変更時の処理
+    fmtSelect.addEventListener('change', () => {
+      const isObj = fmtSelect.value === 'obj';
+      if (isObj) {
+        mtlInput.classList.remove('hidden');
+      } else {
+        mtlInput.classList.add('hidden');
+      }
+    });
+    fmtSelect.dispatchEvent(new Event('change'));
+
+    // イベントリスナー
+    loadBtn.addEventListener('click', () => {
+      loadFromURL(urlInput.value, fmtSelect.value, mtlInput.value, false);
+    });
+
+    proxyBtn.addEventListener('click', () => {
+      loadFromURL(urlInput.value, fmtSelect.value, mtlInput.value, true);
+    });
+
+    fileBtnEl.addEventListener('click', () => fileInput.click());
+    
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (file) loadFromFile(file);
+    });
+
+    resetBtn.addEventListener('click', () => {
+      clearModel();
+      urlInput.value = '';
+      mtlInput.value = '';
+      localStorage.removeItem('last_model_url');
+      localStorage.removeItem('last_mtl_url');
+      localStorage.removeItem('last_model_format');
+      camera.position.set(0, 1.6, 3);
+      controls.reset();
+      updateStatus('リセットしました');
+    });
+
+    // モデル操作
+    const getCurrentObject = () => currentObj;
+    
+    rotLBtn.addEventListener('click', () => {
+      const obj = getCurrentObject();
+      if (obj) {
+        obj.rotation.y -= Math.PI / 12;
+        updateStatus('モデルを回転させました');
+      }
+    });
+    
+    rotRBtn.addEventListener('click', () => {
+      const obj = getCurrentObject();
+      if (obj) {
+        obj.rotation.y += Math.PI / 12;
+        updateStatus('モデルを回転させました');
+      }
+    });
+    
+    scalePBtn.addEventListener('click', () => {
+      const obj = getCurrentObject();
+      if (obj) {
+        obj.scale.multiplyScalar(1.1);
+        updateStatus('モデルを拡大しました');
+      }
+    });
+    
+    scaleMBtn.addEventListener('click', () => {
+      const obj = getCurrentObject();
+      if (obj) {
+        obj.scale.multiplyScalar(0.9);
+        updateStatus('モデルを縮小しました');
+      }
+    });
+
+    // ドラッグ&ドロップ
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.style.display = 'grid';
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      if (!e.relatedTarget || !container.contains(e.relatedTarget)) {
+        dropZone.style.display = 'none';
+      }
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.style.display = 'none';
+      const file = e.dataTransfer.files?.[0];
+      if (file) loadFromFile(file);
+    });
+
+    // WebXRゲームパッドコントロール
+    function applyXRGamepadControls() {
+      if (!renderer.xr.isPresenting) return;
+      
+      const session = renderer.xr.getSession();
+      if (!session) return;
+      
+      const obj = getCurrentObject();
+      if (!obj) return;
+      
+      const DEADZONE = 0.15;
+      const ROTATION_SPEED = 0.04;
+      const SCALE_SPEED = 0.015;
+      
+      for (const inputSource of session.inputSources) {
+        const gamepad = inputSource.gamepad;
+        if (!gamepad || !gamepad.axes) continue;
+        
+        // 水平軸（回転）
+        const horizontalAxis = gamepad.axes[2] ?? gamepad.axes[0] ?? 0;
+        if (Math.abs(horizontalAxis) > DEADZONE) {
+          obj.rotation.y += horizontalAxis * ROTATION_SPEED;
+        }
+        
+        // 垂直軸（スケール）
+        const verticalAxis = gamepad.axes[3] ?? gamepad.axes[1] ?? 0;
+        if (Math.abs(verticalAxis) > DEADZONE) {
+          const scaleMultiplier = 1 + (-verticalAxis) * SCALE_SPEED;
+          obj.scale.multiplyScalar(scaleMultiplier);
+          obj.scale.clampScalar(0.1, 20);
+        }
+      }
+    }
+
+    // レンダリングループ
+    function animate() {
       controls.update();
       applyXRGamepadControls();
       renderer.render(scene, camera);
+    }
+
+    renderer.setAnimationLoop(animate);
+
+    // リサイズ対応
+    window.addEventListener('resize', () => {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      
+      camera.aspect = width / height;
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
     });
 
-    addEventListener('resize', ()=>{ renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); });
+    // エラーハンドリング
+    window.addEventListener('error', (e) => {
+      updateStatus('JavaScriptエラー: ' + e.message, 'error');
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      updateStatus('Promise拒否: ' + e.reason, 'error');
+    });
+
+    // 初期化完了
+    updateStatus('WebXR 3Dビューワー初期化完了。ファイルを読み込んでください。', 'success');
+
   </script>
 </body>
 </html>
