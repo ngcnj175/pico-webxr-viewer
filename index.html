@@ -508,11 +508,13 @@
           
           currentModel.position.sub(center);
           
-          // カメラ位置を調整
+          // カメラ位置を調整（VR対応）
           const maxDim = Math.max(size.x, size.y, size.z);
-          camera.position.set(0, maxDim * 0.5, maxDim * 2.5);
+          // VRモード用に距離を大きく取る
+          const vrDistance = maxDim * 4; // 通常の2倍の距離
+          camera.position.set(0, 1.6, vrDistance); // VR用の高さと距離
           
-          updateStatus(`モデル読み込み完了！ (${format.toUpperCase()}, サイズ: ${maxDim.toFixed(2)})`, 'success');
+          updateStatus(`モデル読み込み完了！ (${format.toUpperCase()}, サイズ: ${maxDim.toFixed(2)}, VR距離: ${vrDistance.toFixed(2)})`, 'success');
         }
 
       } catch (error) {
