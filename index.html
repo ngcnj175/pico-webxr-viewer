@@ -27,23 +27,26 @@
   <div id="ui">
     <div id="controls">
       <input id="url" placeholder="3D Model URL (.obj/.glb/.stl)" value="">
+      <button id="pasteBtn">貼り付け</button>
       <button id="loadBtn">読み込む</button>
-      <button id="proxyBtn">プロキシ経由</button>
       <button id="fileBtn">ファイル選択</button>
       <button id="resetBtn">リセット</button>
     </div>
     <div id="controls">
       <button id="rotateL">⟲ 左回転</button>
       <button id="rotateR">⟳ 右回転</button>
+      <button id="rotateUp">↑ 上回転</button>
+      <button id="rotateDown">↓ 下回転</button>
       <button id="scaleUp">拡大 +</button>
       <button id="scaleDown">縮小 -</button>
     </div>
     <div id="corsHelp">
-      📁 <strong>Dropbox CORS制限について:</strong><br>
-      • 直接読み込み → 失敗する場合は「プロキシ経由」を試す<br>
-      • プロキシ経由 → CORS制限を回避<br>
-      • <strong>最も確実:</strong> ファイルをダウンロードして「ファイル選択」を使用<br>
-      • 他の方法: GitHub、自前サーバー、またはCORS対応のクラウドストレージを使用
+      🎮 <strong>VR操作方法 (PICO4):</strong><br>
+      • <strong>左スティック:</strong> 視点移動 (上下=Y軸移動、左右=X軸移動)<br>
+      • <strong>右スティック:</strong> オブジェクト回転 (上下=X軸回転、左右=Y軸回転)<br>
+      • <strong>Yボタン:</strong> 視点前進 | <strong>Xボタン:</strong> 視点後退<br>
+      • <strong>Aボタン:</strong> オブジェクト縮小 | <strong>Bボタン:</strong> オブジェクト拡大<br>
+      📁 <strong>読み込み:</strong> 「読み込む」ボタンで自動的にCORS制限回避
     </div>
     <div id="status">準備完了 - URLまたはファイルを選択してください</div>
   </div>
@@ -63,13 +66,15 @@
     const statusEl = document.getElementById('status');
     const urlInput = document.getElementById('url');
     const loadBtn = document.getElementById('loadBtn');
-    const proxyBtn = document.getElementById('proxyBtn');
+    const pasteBtn = document.getElementById('pasteBtn');
     const fileBtn = document.getElementById('fileBtn');
     const resetBtn = document.getElementById('resetBtn');
     const fileInput = document.getElementById('fileInput');
     const dropZone = document.getElementById('dropZone');
     const rotateL = document.getElementById('rotateL');
     const rotateR = document.getElementById('rotateR');
+    const rotateUp = document.getElementById('rotateUp');
+    const rotateDown = document.getElementById('rotateDown');
     const scaleUp = document.getElementById('scaleUp');
     const scaleDown = document.getElementById('scaleDown');
 
@@ -84,7 +89,7 @@
     function setLoading(loading) {
       isLoading = loading;
       loadBtn.disabled = loading;
-      proxyBtn.disabled = loading;
+      pasteBtn.disabled = loading;
       if (loading) {
         updateStatus('読み込み中...', 'warning');
       }
@@ -158,7 +163,7 @@
         scene.background = new THREE.Color(0x0b0d10);
 
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 1.6, 5); // VR用の高さ調整
+        camera.position.set(0, 1.6, 8); // デスクトップ用初期位置
 
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -236,7 +241,7 @@
       }
     }
 
-    // VRモードの切り替え
+    // VRセッションの開始時にカメラ位置を調整
     async function toggleVR() {
       try {
         console.log('Toggling VR mode...');
@@ -262,8 +267,20 @@
           });
 
           await renderer.xr.setSession(vrSession);
+          
+          // VRモード開始時にカメラ位置を調整
+          if (currentModel) {
+            const box = new THREE.Box3().setFromObject(currentModel);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            // VR用視点: オブジェクト全体が見えるようにY軸負方向に配置
+            camera.position.set(0, -maxDim * 1.5, maxDim * 3); // Y軸を負方向に移動
+            console.log(`VR camera position set to: x=0, y=${-maxDim * 1.5}, z=${maxDim * 3}`);
+          }
+          
           document.getElementById('vrButton').textContent = 'Exit VR';
-          updateStatus('VRモードを開始しました - コントローラーのスティックで操作してください', 'success');
+          updateStatus('VRモード開始 - 新しい操作方法でコントロールしてください', 'success');
         }
       } catch (error) {
         console.error('VR toggle error:', error);
@@ -285,46 +302,99 @@
       renderer.render(scene, camera);
     }
 
-    // VRコントローラー操作
+    // VRコントローラー操作（新仕様）
     function handleVRControls() {
-      if (!renderer.xr.isPresenting || !currentModel) return;
+      if (!renderer.xr.isPresenting) return;
       
       const session = renderer.xr.getSession();
       if (!session) return;
 
-      // コントローラー入力の処理
+      // 操作設定
+      const DEADZONE = 0.15;
+      const VIEW_SPEED = 0.05; // 視点移動速度
+      const ROTATION_SPEED = 0.03; // オブジェクト回転速度
+      const SCALE_FACTOR = 0.02; // スケール変更量
+
       for (const inputSource of session.inputSources) {
-        if (inputSource.gamepad && inputSource.gamepad.axes) {
-          const axes = inputSource.gamepad.axes;
-          
-          // デッドゾーンを設定
-          const deadzone = 0.15;
-          
-          // 左スティック（通常は axes[0], axes[1]）
-          if (axes.length >= 2) {
-            const xAxis = Math.abs(axes[0]) > deadzone ? axes[0] : 0;
-            const yAxis = Math.abs(axes[1]) > deadzone ? axes[1] : 0;
+        if (!inputSource.gamepad) continue;
+        
+        const gamepad = inputSource.gamepad;
+        const handedness = inputSource.handedness;
+        
+        // 左手コントローラー: 視点操作
+        if (handedness === 'left') {
+          // 左スティック: 視点のXY軸移動
+          if (gamepad.axes.length >= 2) {
+            const xAxis = gamepad.axes[0]; // 左右 → X軸移動
+            const yAxis = gamepad.axes[1]; // 上下 → Y軸移動
             
-            if (xAxis !== 0) {
-              currentModel.rotation.y += xAxis * 0.05;
+            if (Math.abs(xAxis) > DEADZONE) {
+              camera.position.x += xAxis * VIEW_SPEED;
+              console.log('View X movement:', xAxis, 'Camera X:', camera.position.x);
             }
-            if (yAxis !== 0) {
-              const scale = 1 + (-yAxis * 0.02);
-              currentModel.scale.multiplyScalar(Math.max(0.1, Math.min(5.0, scale)));
+            
+            if (Math.abs(yAxis) > DEADZONE) {
+              camera.position.y += -yAxis * VIEW_SPEED; // 上下反転
+              console.log('View Y movement:', yAxis, 'Camera Y:', camera.position.y);
             }
           }
           
-          // 右スティック（通常は axes[2], axes[3]）
-          if (axes.length >= 4) {
-            const xAxis = Math.abs(axes[2]) > deadzone ? axes[2] : 0;
-            const yAxis = Math.abs(axes[3]) > deadzone ? axes[3] : 0;
+          // Yボタン: 視点のZ軸+方向移動（前進）
+          if (gamepad.buttons.length > 3 && gamepad.buttons[3].pressed) {
+            camera.position.z -= VIEW_SPEED; // Z軸+方向 = 前進
+            console.log('Y button: forward, Camera Z:', camera.position.z);
+          }
+          
+          // Xボタン: 視点のZ軸-方向移動（後退）
+          if (gamepad.buttons.length > 2 && gamepad.buttons[2].pressed) {
+            camera.position.z += VIEW_SPEED; // Z軸-方向 = 後退
+            console.log('X button: backward, Camera Z:', camera.position.z);
+          }
+        }
+        
+        // 右手コントローラー: オブジェクト操作
+        else if (handedness === 'right' && currentModel) {
+          // 右スティック: オブジェクト回転
+          if (gamepad.axes.length >= 4) {
+            const xAxis = gamepad.axes[2]; // 左右 → Y軸回転
+            const yAxis = gamepad.axes[3]; // 上下 → X軸回転
             
-            if (xAxis !== 0) {
-              currentModel.rotation.x += xAxis * 0.05;
+            if (Math.abs(xAxis) > DEADZONE) {
+              currentModel.rotation.y += xAxis * ROTATION_SPEED;
+              console.log('Object Y rotation:', xAxis);
             }
-            if (yAxis !== 0) {
-              currentModel.position.y += yAxis * 0.05;
+            
+            if (Math.abs(yAxis) > DEADZONE) {
+              currentModel.rotation.x += -yAxis * ROTATION_SPEED; // 上下反転
+              console.log('Object X rotation:', yAxis);
             }
+          }
+          // または左スティックを使用する場合
+          else if (gamepad.axes.length >= 2) {
+            const xAxis = gamepad.axes[0]; // 左右 → Y軸回転
+            const yAxis = gamepad.axes[1]; // 上下 → X軸回転
+            
+            if (Math.abs(xAxis) > DEADZONE) {
+              currentModel.rotation.y += xAxis * ROTATION_SPEED;
+            }
+            
+            if (Math.abs(yAxis) > DEADZONE) {
+              currentModel.rotation.x += -yAxis * ROTATION_SPEED;
+            }
+          }
+          
+          // Aボタン: オブジェクト縮小
+          if (gamepad.buttons.length > 0 && gamepad.buttons[0].pressed) {
+            currentModel.scale.multiplyScalar(1 - SCALE_FACTOR);
+            currentModel.scale.clampScalar(0.1, 10.0);
+            console.log('A button: scale down, current scale:', currentModel.scale.x);
+          }
+          
+          // Bボタン: オブジェクト拡大
+          if (gamepad.buttons.length > 1 && gamepad.buttons[1].pressed) {
+            currentModel.scale.multiplyScalar(1 + SCALE_FACTOR);
+            currentModel.scale.clampScalar(0.1, 10.0);
+            console.log('B button: scale up, current scale:', currentModel.scale.x);
           }
         }
       }
@@ -676,9 +746,11 @@
             const box = new THREE.Box3().setFromObject(currentModel);
             const size = box.getSize(new THREE.Vector3());
             const maxDim = Math.max(size.x, size.y, size.z);
-            camera.position.set(0, maxDim * 0.5, maxDim * 2.5);
+            // VR用により遠い距離
+            const vrDistance = maxDim * 5;
+            camera.position.set(0, 1.6, vrDistance);
             
-            updateStatus(`ファイル読み込み完了！ (${format.toUpperCase()}, ${file.name})`, 'success');
+            updateStatus(`ファイル読み込み完了！ (${format.toUpperCase()}, ${file.name}, VR距離: ${vrDistance.toFixed(2)})`, 'success');
           }
 
         } catch (error) {
@@ -705,19 +777,23 @@
         console.log('Load button clicked, URL:', urlInput.value);
         const url = urlInput.value.trim();
         if (url) {
-          loadModel(url, false); // 直接読み込み
+          // dropbox URLは必ずプロキシ経由で読み込み
+          const useProxy = url.includes('dropbox.com');
+          loadModel(url, useProxy);
         } else {
           updateStatus('URLを入力してください', 'warning');
         }
       };
 
-      proxyBtn.onclick = function() {
-        console.log('Proxy button clicked, URL:', urlInput.value);
-        const url = urlInput.value.trim();
-        if (url) {
-          loadModel(url, true); // プロキシ経由
-        } else {
-          updateStatus('URLを入力してください', 'warning');
+      pasteBtn.onclick = async function() {
+        console.log('Paste button clicked');
+        try {
+          const text = await navigator.clipboard.readText();
+          urlInput.value = text;
+          updateStatus('クリップボードからURLを貼り付けました', 'success');
+        } catch (error) {
+          console.error('Paste error:', error);
+          updateStatus('貼り付けエラー: ' + error.message, 'error');
         }
       };
 
@@ -733,7 +809,7 @@
           currentModel = null;
           updateStatus('モデルをリセットしました', 'success');
         }
-        camera.position.set(0, 1.6, 5);
+        camera.position.set(0, 1.6, 8); // VR用により遠い位置
         urlInput.value = '';
       };
 
@@ -748,6 +824,8 @@
       // モデル操作ボタン
       rotateL.onclick = () => { if (currentModel) currentModel.rotation.y -= Math.PI / 8; };
       rotateR.onclick = () => { if (currentModel) currentModel.rotation.y += Math.PI / 8; };
+      rotateUp.onclick = () => { if (currentModel) currentModel.rotation.x -= Math.PI / 8; };
+      rotateDown.onclick = () => { if (currentModel) currentModel.rotation.x += Math.PI / 8; };
       scaleUp.onclick = () => { if (currentModel) currentModel.scale.multiplyScalar(1.2); };
       scaleDown.onclick = () => { if (currentModel) currentModel.scale.multiplyScalar(0.8); };
 
