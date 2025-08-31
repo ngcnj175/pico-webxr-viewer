@@ -1,4 +1,7 @@
-<!doctype html>
+debugBtn.onclick = function() {
+        console.log('Debug toggle clicked');
+        toggleDebugDisplay();
+      };<!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8" />
@@ -31,6 +34,7 @@
       <button id="loadBtn">読み込む</button>
       <button id="fileBtn">ファイル選択</button>
       <button id="resetBtn">リセット</button>
+      <button id="debugBtn">デバッグ表示</button>
     </div>
     <div id="controls">
       <button id="rotateL">⟲ 左回転</button>
@@ -51,6 +55,12 @@
     <div id="status">準備完了 - URLまたはファイルを選択してください</div>
   </div>
 
+  <!-- デバッグ情報表示エリア -->
+  <div id="debugInfo" style="position:fixed;top:200px;right:10px;width:300px;background:rgba(0,0,0,0.8);color:#fff;padding:10px;border-radius:5px;font-family:monospace;font-size:11px;display:none;z-index:150;max-height:400px;overflow-y:auto;">
+    <div style="font-weight:bold;margin-bottom:5px;">VRコントローラーデバッグ</div>
+    <div id="debugOutput"></div>
+  </div>
+
   <input type="file" id="fileInput" accept=".obj,.glb,.gltf,.stl">
   <div id="dropZone">ファイルをドロップしてください</div>
 
@@ -69,6 +79,7 @@
     const pasteBtn = document.getElementById('pasteBtn');
     const fileBtn = document.getElementById('fileBtn');
     const resetBtn = document.getElementById('resetBtn');
+    const debugBtn = document.getElementById('debugBtn');
     const fileInput = document.getElementById('fileInput');
     const dropZone = document.getElementById('dropZone');
     const rotateL = document.getElementById('rotateL');
@@ -77,6 +88,8 @@
     const rotateDown = document.getElementById('rotateDown');
     const scaleUp = document.getElementById('scaleUp');
     const scaleDown = document.getElementById('scaleDown');
+    const debugInfo = document.getElementById('debugInfo');
+    const debugOutput = document.getElementById('debugOutput');
 
     // ステータス更新関数
     function updateStatus(message, type) {
@@ -92,6 +105,34 @@
       pasteBtn.disabled = loading;
       if (loading) {
         updateStatus('読み込み中...', 'warning');
+      }
+    }
+
+    // デバッグ表示用の関数
+    let debugVisible = false;
+    let debugMessages = [];
+
+    function addDebugMessage(message) {
+      const timestamp = new Date().toLocaleTimeString();
+      debugMessages.push(`[${timestamp}] ${message}`);
+      if (debugMessages.length > 20) {
+        debugMessages.shift(); // 古いメッセージを削除
+      }
+      if (debugVisible && debugOutput) {
+        debugOutput.innerHTML = debugMessages.join('<br>');
+        debugOutput.scrollTop = debugOutput.scrollHeight;
+      }
+      console.log(message); // コンソールにも出力
+    }
+
+    function toggleDebugDisplay() {
+      debugVisible = !debugVisible;
+      if (debugInfo) {
+        debugInfo.style.display = debugVisible ? 'block' : 'none';
+        debugBtn.textContent = debugVisible ? 'デバッグ非表示' : 'デバッグ表示';
+        if (debugVisible && debugOutput) {
+          debugOutput.innerHTML = debugMessages.join('<br>');
+        }
       }
     }
 
@@ -302,7 +343,7 @@
       renderer.render(scene, camera);
     }
 
-    // VRコントローラー操作（修正版）
+    // VRコントローラー操作（画面デバッグ対応版）
     function handleVRControls() {
       if (!renderer.xr.isPresenting) return;
       
@@ -310,117 +351,119 @@
       if (!session) return;
 
       // 操作設定
-      const DEADZONE = 0.15;
-      const VIEW_SPEED = 0.1; // 視点移動速度
-      const ROTATION_SPEED = 0.05; // オブジェクト回転速度
-      const SCALE_FACTOR = 0.015; // スケール変更量
+      const DEADZONE = 0.1;
+      const VIEW_SPEED = 0.08;
+      const ROTATION_SPEED = 0.04;
+      const SCALE_FACTOR = 0.02;
 
-      for (const inputSource of session.inputSources) {
-        if (!inputSource.gamepad) continue;
-        
+      // 全入力ソースをデバッグ出力
+      if (session.inputSources.length === 0) {
+        addDebugMessage('⚠️ コントローラーが検出されません');
+        return;
+      }
+
+      // コントローラーを配列に格納
+      const controllers = Array.from(session.inputSources);
+      addDebugMessage(`🎮 コントローラー数: ${controllers.length}`);
+
+      for (let i = 0; i < controllers.length; i++) {
+        const inputSource = controllers[i];
         const gamepad = inputSource.gamepad;
-        const handedness = inputSource.handedness;
+        const handedness = inputSource.handedness || `controller_${i}`;
         
-        console.log(`Controller: ${handedness}, buttons: ${gamepad.buttons.length}, axes: ${gamepad.axes.length}`);
+        if (!gamepad) {
+          addDebugMessage(`Controller ${i} (${handedness}): ゲームパッドなし`);
+          continue;
+        }
+
+        // アクティブな入力のみ詳細表示
+        const activeButtons = gamepad.buttons.map((btn, idx) => btn.pressed ? idx : null).filter(x => x !== null);
+        const activeAxes = gamepad.axes.map((axis, idx) => Math.abs(axis) > DEADZONE ? `${idx}:${axis.toFixed(2)}` : null).filter(x => x !== null);
         
-        // 左手コントローラー: 視点操作
-        if (handedness === 'left') {
-          // 左スティック: 視点のXY軸移動
-          if (gamepad.axes && gamepad.axes.length >= 2) {
-            const xAxis = gamepad.axes[0]; // 左右 → X軸移動
-            const yAxis = gamepad.axes[1]; // 上下 → Y軸移動
+        if (activeButtons.length > 0 || activeAxes.length > 0) {
+          addDebugMessage(`Controller ${i} (${handedness}): ボタン[${activeButtons.join(',')}] 軸[${activeAxes.join(',')}]`);
+        }
+
+        // 第1コントローラー（通常左手）: 視点操作
+        if (i === 0) {
+          // スティック操作
+          if (gamepad.axes.length >= 2) {
+            const xAxis = gamepad.axes[0];
+            const yAxis = gamepad.axes[1];
             
             if (Math.abs(xAxis) > DEADZONE) {
               camera.position.x += xAxis * VIEW_SPEED;
-              console.log('View X movement:', xAxis, 'Camera X:', camera.position.x.toFixed(2));
+              addDebugMessage(`👀 カメラX移動: ${xAxis.toFixed(2)} → ${camera.position.x.toFixed(2)}`);
             }
             
             if (Math.abs(yAxis) > DEADZONE) {
-              camera.position.y += -yAxis * VIEW_SPEED; // 上下反転（上で上昇）
-              console.log('View Y movement:', -yAxis, 'Camera Y:', camera.position.y.toFixed(2));
+              camera.position.y += -yAxis * VIEW_SPEED;
+              addDebugMessage(`👀 カメラY移動: ${(-yAxis).toFixed(2)} → ${camera.position.y.toFixed(2)}`);
             }
           }
           
-          // ボタン操作をデバッグ
-          if (gamepad.buttons) {
-            for (let i = 0; i < gamepad.buttons.length; i++) {
-              if (gamepad.buttons[i].pressed) {
-                console.log(`Left controller button ${i} pressed`);
+          // ボタン操作
+          for (let btnIdx = 0; btnIdx < gamepad.buttons.length; btnIdx++) {
+            if (gamepad.buttons[btnIdx].pressed) {
+              if (btnIdx === 0) {
+                camera.position.z += VIEW_SPEED;
+                addDebugMessage(`🔙 ボタン${btnIdx}: カメラ後退 → Z:${camera.position.z.toFixed(2)}`);
+              } else if (btnIdx === 1) {
+                camera.position.z -= VIEW_SPEED;
+                addDebugMessage(`🔜 ボタン${btnIdx}: カメラ前進 → Z:${camera.position.z.toFixed(2)}`);
+              } else if (btnIdx === 2) {
+                camera.position.z += VIEW_SPEED;
+                addDebugMessage(`🔙 Xボタン(${btnIdx}): カメラ後退 → Z:${camera.position.z.toFixed(2)}`);
+              } else if (btnIdx === 3) {
+                camera.position.z -= VIEW_SPEED;
+                addDebugMessage(`🔜 Yボタン(${btnIdx}): カメラ前進 → Z:${camera.position.z.toFixed(2)}`);
+              } else {
+                addDebugMessage(`❓ 左手ボタン${btnIdx}が押されました`);
               }
             }
-          }
-          
-          // Yボタン: 視点のZ軸+方向移動（前進）- PICO4では通常ボタン3
-          if (gamepad.buttons && gamepad.buttons.length > 3 && gamepad.buttons[3].pressed) {
-            camera.position.z -= VIEW_SPEED; // Z軸+方向 = 前進（オブジェクトに近づく）
-            console.log('Y button (3): forward, Camera Z:', camera.position.z.toFixed(2));
-          }
-          
-          // Xボタン: 視点のZ軸-方向移動（後退）- PICO4では通常ボタン2
-          if (gamepad.buttons && gamepad.buttons.length > 2 && gamepad.buttons[2].pressed) {
-            camera.position.z += VIEW_SPEED; // Z軸-方向 = 後退（オブジェクトから離れる）
-            console.log('X button (2): backward, Camera Z:', camera.position.z.toFixed(2));
           }
         }
         
-        // 右手コントローラー: オブジェクト操作
-        else if (handedness === 'right' && currentModel) {
-          // 右スティック: オブジェクト回転
-          let rightXAxis, rightYAxis;
+        // 第2コントローラー（通常右手）: オブジェクト操作
+        else if (i === 1 && currentModel) {
+          // スティック操作
+          let xAxis, yAxis;
           
-          // 右スティックの軸を特定（PICO4では axes[2], axes[3] または axes[0], axes[1]）
-          if (gamepad.axes && gamepad.axes.length >= 4) {
-            rightXAxis = gamepad.axes[2]; // 右スティック左右
-            rightYAxis = gamepad.axes[3]; // 右スティック上下
-          } else if (gamepad.axes && gamepad.axes.length >= 2) {
-            rightXAxis = gamepad.axes[0]; // 左スティック左右（右手の場合）
-            rightYAxis = gamepad.axes[1]; // 左スティック上下（右手の場合）
+          if (gamepad.axes.length >= 4) {
+            xAxis = gamepad.axes[2];
+            yAxis = gamepad.axes[3];
+          } else if (gamepad.axes.length >= 2) {
+            xAxis = gamepad.axes[0];
+            yAxis = gamepad.axes[1];
           }
           
-          if (rightXAxis !== undefined && rightYAxis !== undefined) {
-            // 左右でY軸回転（水平回転）- 方向修正
-            if (Math.abs(rightXAxis) > DEADZONE) {
-              currentModel.rotation.y += -rightXAxis * ROTATION_SPEED; // 方向反転
-              console.log('Object Y rotation:', -rightXAxis, 'Current Y:', currentModel.rotation.y.toFixed(2));
+          if (xAxis !== undefined && yAxis !== undefined) {
+            if (Math.abs(xAxis) > DEADZONE) {
+              currentModel.rotation.y -= xAxis * ROTATION_SPEED;
+              addDebugMessage(`🔄 オブジェクトY回転: ${(-xAxis).toFixed(2)} → ${currentModel.rotation.y.toFixed(2)}`);
             }
             
-            // 上下でX軸回転（垂直回転）- 方向修正
-            if (Math.abs(rightYAxis) > DEADZONE) {
-              currentModel.rotation.x += rightYAxis * ROTATION_SPEED; // 方向修正（反転なし）
-              console.log('Object X rotation:', rightYAxis, 'Current X:', currentModel.rotation.x.toFixed(2));
+            if (Math.abs(yAxis) > DEADZONE) {
+              currentModel.rotation.x += yAxis * ROTATION_SPEED;
+              addDebugMessage(`🔄 オブジェクトX回転: ${yAxis.toFixed(2)} → ${currentModel.rotation.x.toFixed(2)}`);
             }
           }
           
-          // ボタン操作をデバッグ
-          if (gamepad.buttons) {
-            for (let i = 0; i < gamepad.buttons.length; i++) {
-              if (gamepad.buttons[i].pressed) {
-                console.log(`Right controller button ${i} pressed`);
+          // ボタン操作
+          for (let btnIdx = 0; btnIdx < gamepad.buttons.length; btnIdx++) {
+            if (gamepad.buttons[btnIdx].pressed) {
+              if (btnIdx === 0) {
+                currentModel.scale.multiplyScalar(1 - SCALE_FACTOR);
+                currentModel.scale.clampScalar(0.05, 20.0);
+                addDebugMessage(`🔻 Aボタン(${btnIdx}): 縮小 → ${currentModel.scale.x.toFixed(3)}`);
+              } else if (btnIdx === 1) {
+                currentModel.scale.multiplyScalar(1 + SCALE_FACTOR);
+                currentModel.scale.clampScalar(0.05, 20.0);
+                addDebugMessage(`🔺 Bボタン(${btnIdx}): 拡大 → ${currentModel.scale.x.toFixed(3)}`);
+              } else {
+                addDebugMessage(`❓ 右手ボタン${btnIdx}が押されました`);
               }
             }
-          }
-          
-          // Aボタン: オブジェクト縮小 - PICO4では通常ボタン0（トリガーではない）
-          if (gamepad.buttons && gamepad.buttons.length > 0 && gamepad.buttons[0].pressed) {
-            currentModel.scale.multiplyScalar(1 - SCALE_FACTOR);
-            currentModel.scale.clampScalar(0.05, 20.0);
-            console.log('A button (0): scale down, current scale:', currentModel.scale.x.toFixed(3));
-          }
-          
-          // Bボタン: オブジェクト拡大 - PICO4では通常ボタン1（グリップではない）
-          if (gamepad.buttons && gamepad.buttons.length > 1 && gamepad.buttons[1].pressed) {
-            currentModel.scale.multiplyScalar(1 + SCALE_FACTOR);
-            currentModel.scale.clampScalar(0.05, 20.0);
-            console.log('B button (1): scale up, current scale:', currentModel.scale.x.toFixed(3));
-          }
-          
-          // 他のボタンも試す（PICO4のボタン配置確認用）
-          // メニューボタン（通常ボタン4）でリセット
-          if (gamepad.buttons && gamepad.buttons.length > 4 && gamepad.buttons[4].pressed) {
-            currentModel.position.set(0, 0, 0);
-            currentModel.rotation.set(0, 0, 0);
-            currentModel.scale.set(1, 1, 1);
-            console.log('Menu button (4): model reset');
           }
         }
       }
